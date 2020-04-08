@@ -74,7 +74,3 @@ This software is free to use under the Apache License [Apache license](https://g
 
 # 
 请及时提出issue给我们。请前往：[DataxIssue](https://github.com/alibaba/DataX/issues)
-
-# 开源版DataX企业用户
-
-![Datax-logo](https://github.com/alibaba/DataX/blob/master/images/datax-enterprise-users.jpg)
