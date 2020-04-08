@@ -557,17 +557,14 @@ public final class DBUtil {
                 new ArrayList<String>());
         try {
             statement = conn.createStatement();
-            String queryColumnSql = "select " + column + " from " + tableName
-                    + " where 1=2";
+            String queryColumnSql = "select " + column + " from " + tableName + " where 1=2";
 
             rs = statement.executeQuery(queryColumnSql);
             ResultSetMetaData rsMetaData = rs.getMetaData();
             for (int i = 0, len = rsMetaData.getColumnCount(); i < len; i++) {
-
                 columnMetaData.getLeft().add(rsMetaData.getColumnName(i + 1));
                 columnMetaData.getMiddle().add(rsMetaData.getColumnType(i + 1));
-                columnMetaData.getRight().add(
-                        rsMetaData.getColumnTypeName(i + 1));
+                columnMetaData.getRight().add(rsMetaData.getColumnTypeName(i + 1));
             }
             return columnMetaData;
 

@@ -171,8 +171,7 @@ public class CommonRdbmsWriter {
     }
 
     public static class Task {
-        protected static final Logger LOG = LoggerFactory
-                .getLogger(Task.class);
+        protected static final Logger LOG = LoggerFactory.getLogger(Task.class);
 
         protected DataBaseType dataBaseType;
         private static final String VALUE_HOLDER = "?";
@@ -263,8 +262,7 @@ public class CommonRdbmsWriter {
             this.taskPluginCollector = taskPluginCollector;
 
             // 用于写入数据的时候的类型根据目的表字段类型转换
-            this.resultSetMetaData = DBUtil.getColumnMetaData(connection,
-                    this.table, StringUtils.join(this.columns, ","));
+            this.resultSetMetaData = DBUtil.getColumnMetaData(connection, this.table, "`" + StringUtils.join(this.columns, "`,`") + "`");
             // 写数据库的SQL语句
             calcWriteRecordSql();
 
@@ -288,19 +286,26 @@ public class CommonRdbmsWriter {
                     bufferBytes += record.getMemorySize();
 
                     if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
-                        doBatchInsert(connection, writeBuffer);
+                        if (this.dataBaseType == DataBaseType.IMPALA) {
+                            doBatchUpsert(connection, writeBuffer);
+                        } else {
+                            doBatchInsert(connection, writeBuffer);
+                        }
                         writeBuffer.clear();
                         bufferBytes = 0;
                     }
                 }
                 if (!writeBuffer.isEmpty()) {
-                    doBatchInsert(connection, writeBuffer);
+                    if (this.dataBaseType == DataBaseType.IMPALA) {
+                        doBatchUpsert(connection, writeBuffer);
+                    } else {
+                        doBatchInsert(connection, writeBuffer);
+                    }
                     writeBuffer.clear();
                     bufferBytes = 0;
                 }
             } catch (Exception e) {
-                throw DataXException.asDataXException(
-                        DBUtilErrorCode.WRITE_DATA_ERROR, e);
+                throw DataXException.asDataXException(DBUtilErrorCode.WRITE_DATA_ERROR, e);
             } finally {
                 writeBuffer.clear();
                 bufferBytes = 0;
@@ -312,28 +317,23 @@ public class CommonRdbmsWriter {
         public void startWrite(RecordReceiver recordReceiver,
                                Configuration writerSliceConfig,
                                TaskPluginCollector taskPluginCollector) {
-            Connection connection = DBUtil.getConnection(this.dataBaseType,
-                    this.jdbcUrl, username, password);
-            DBUtil.dealWithSessionConfig(connection, writerSliceConfig,
-                    this.dataBaseType, BASIC_MESSAGE);
+            Connection connection = DBUtil.getConnection(this.dataBaseType, this.jdbcUrl, username, password);
+            DBUtil.dealWithSessionConfig(connection, writerSliceConfig, this.dataBaseType, BASIC_MESSAGE);
             startWriteWithConnection(recordReceiver, taskPluginCollector, connection);
         }
 
 
         public void post(Configuration writerSliceConfig) {
-            int tableNumber = writerSliceConfig.getInt(
-                    Constant.TABLE_NUMBER_MARK);
+            int tableNumber = writerSliceConfig.getInt(Constant.TABLE_NUMBER_MARK);
 
             boolean hasPostSql = (this.postSqls != null && this.postSqls.size() > 0);
             if (tableNumber == 1 || !hasPostSql) {
                 return;
             }
 
-            Connection connection = DBUtil.getConnection(this.dataBaseType,
-                    this.jdbcUrl, username, password);
+            Connection connection = DBUtil.getConnection(this.dataBaseType, this.jdbcUrl, username, password);
 
-            LOG.info("Begin to execute postSqls:[{}]. context info:{}.",
-                    StringUtils.join(this.postSqls, ";"), BASIC_MESSAGE);
+            LOG.info("Begin to execute postSqls:[{}]. context info:{}.", StringUtils.join(this.postSqls, ";"), BASIC_MESSAGE);
             WriterUtil.executeSqls(connection, this.postSqls, BASIC_MESSAGE, dataBaseType);
             DBUtil.closeDBResources(null, null, connection);
         }
@@ -341,17 +341,51 @@ public class CommonRdbmsWriter {
         public void destroy(Configuration writerSliceConfig) {
         }
 
-        protected void doBatchInsert(Connection connection, List<Record> buffer)
-                throws SQLException {
+        protected void doBatchUpsert(Connection connection, List<Record> buffer) throws SQLException {
+            PreparedStatement preparedStatement = null;
+            try {
+                connection.setAutoCommit(true);
+                preparedStatement = connection.prepareStatement(generateBatchSql(this.writeRecordSql, buffer.size()));
+
+                for (int i = 0; i < buffer.size(); i++) {
+                    Record record = buffer.get(i);
+                    preparedStatement = fillPreparedStatement(preparedStatement, i, record);
+                }
+                preparedStatement.executeUpdate();
+
+                LOG.debug("CommonRdbmsWriter.Task.doBatchUpsert: " + buffer.size());
+            } catch (SQLException e) {
+                LOG.warn("回滚此次写入, 采用每次写入一行方式提交. 因为:" + e.getMessage());
+                doOneInsert(connection, buffer);
+            } catch (Exception e) {
+                throw DataXException.asDataXException(DBUtilErrorCode.WRITE_DATA_ERROR, e);
+            } finally {
+                DBUtil.closeDBResources(preparedStatement, null);
+            }
+        }
+
+        private String generateBatchSql(String writeRecordSql, int size) {
+            StringBuilder writeDataSql = new StringBuilder();
+            String insertSql = writeRecordSql.substring(0, writeRecordSql.lastIndexOf("("));
+            String valueSql = writeRecordSql.substring(writeRecordSql.lastIndexOf("("));
+            writeDataSql.append(insertSql);
+            for (int i = 0; i < size; i++) {
+                writeDataSql.append(valueSql);
+                if (i < size - 1) {
+                    writeDataSql.append(", ");
+                }
+            }
+            return writeDataSql.toString();
+        }
+
+        protected void doBatchInsert(Connection connection, List<Record> buffer) throws SQLException {
             PreparedStatement preparedStatement = null;
             try {
                 connection.setAutoCommit(false);
-                preparedStatement = connection
-                        .prepareStatement(this.writeRecordSql);
+                preparedStatement = connection.prepareStatement(this.writeRecordSql);
 
                 for (Record record : buffer) {
-                    preparedStatement = fillPreparedStatement(
-                            preparedStatement, record);
+                    preparedStatement = fillPreparedStatement(preparedStatement, record);
                     preparedStatement.addBatch();
                 }
                 preparedStatement.executeBatch();
@@ -361,8 +395,7 @@ public class CommonRdbmsWriter {
                 connection.rollback();
                 doOneInsert(connection, buffer);
             } catch (Exception e) {
-                throw DataXException.asDataXException(
-                        DBUtilErrorCode.WRITE_DATA_ERROR, e);
+                throw DataXException.asDataXException(DBUtilErrorCode.WRITE_DATA_ERROR, e);
             } finally {
                 DBUtil.closeDBResources(preparedStatement, null);
             }
@@ -372,13 +405,11 @@ public class CommonRdbmsWriter {
             PreparedStatement preparedStatement = null;
             try {
                 connection.setAutoCommit(true);
-                preparedStatement = connection
-                        .prepareStatement(this.writeRecordSql);
+                preparedStatement = connection.prepareStatement(this.writeRecordSql);
 
                 for (Record record : buffer) {
                     try {
-                        preparedStatement = fillPreparedStatement(
-                                preparedStatement, record);
+                        preparedStatement = fillPreparedStatement(preparedStatement, record);
                         preparedStatement.execute();
                     } catch (SQLException e) {
                         LOG.debug(e.toString());
@@ -398,8 +429,17 @@ public class CommonRdbmsWriter {
         }
 
         // 直接使用了两个类变量：columnNumber,resultSetMetaData
-        protected PreparedStatement fillPreparedStatement(PreparedStatement preparedStatement, Record record)
-                throws SQLException {
+        protected PreparedStatement fillPreparedStatement(PreparedStatement preparedStatement, int index, Record record) throws SQLException {
+            for (int i = 0; i < this.columnNumber; i++) {
+                int columnSqltype = this.resultSetMetaData.getMiddle().get(i);
+                preparedStatement = fillPreparedStatementColumnType(preparedStatement, this.columnNumber * index + i, columnSqltype, record.getColumn(i));
+            }
+
+            return preparedStatement;
+        }
+
+        // 直接使用了两个类变量：columnNumber,resultSetMetaData
+        protected PreparedStatement fillPreparedStatement(PreparedStatement preparedStatement, Record record) throws SQLException {
             for (int i = 0; i < this.columnNumber; i++) {
                 int columnSqltype = this.resultSetMetaData.getMiddle().get(i);
                 preparedStatement = fillPreparedStatementColumnType(preparedStatement, i, columnSqltype, record.getColumn(i));
@@ -419,8 +459,7 @@ public class CommonRdbmsWriter {
                 case Types.LONGVARCHAR:
                 case Types.NVARCHAR:
                 case Types.LONGNVARCHAR:
-                    preparedStatement.setString(columnIndex + 1, column
-                            .asString());
+                    preparedStatement.setString(columnIndex + 1, column.asString());
                     break;
 
                 case Types.SMALLINT:
@@ -451,8 +490,7 @@ public class CommonRdbmsWriter {
 
                 // for mysql bug, see http://bugs.mysql.com/bug.php?id=35115
                 case Types.DATE:
-                    if (this.resultSetMetaData.getRight().get(columnIndex)
-                            .equalsIgnoreCase("year")) {
+                    if (this.resultSetMetaData.getRight().get(columnIndex).equalsIgnoreCase("year")) {
                         if (column.asBigInteger() == null) {
                             preparedStatement.setString(columnIndex + 1, null);
                         } else {
@@ -463,8 +501,7 @@ public class CommonRdbmsWriter {
                         try {
                             utilDate = column.asDate();
                         } catch (DataXException e) {
-                            throw new SQLException(String.format(
-                                    "Date 类型转换错误：[%s]", column));
+                            throw new SQLException(String.format("Date 类型转换错误：[%s]", column));
                         }
 
                         if (null != utilDate) {
@@ -479,8 +516,7 @@ public class CommonRdbmsWriter {
                     try {
                         utilDate = column.asDate();
                     } catch (DataXException e) {
-                        throw new SQLException(String.format(
-                                "TIME 类型转换错误：[%s]", column));
+                        throw new SQLException(String.format("TIME 类型转换错误：[%s]", column));
                     }
 
                     if (null != utilDate) {
@@ -494,13 +530,11 @@ public class CommonRdbmsWriter {
                     try {
                         utilDate = column.asDate();
                     } catch (DataXException e) {
-                        throw new SQLException(String.format(
-                                "TIMESTAMP 类型转换错误：[%s]", column));
+                        throw new SQLException(String.format("TIMESTAMP 类型转换错误：[%s]", column));
                     }
 
                     if (null != utilDate) {
-                        sqlTimestamp = new java.sql.Timestamp(
-                                utilDate.getTime());
+                        sqlTimestamp = new java.sql.Timestamp(utilDate.getTime());
                     }
                     preparedStatement.setTimestamp(columnIndex + 1, sqlTimestamp);
                     break;
@@ -509,8 +543,7 @@ public class CommonRdbmsWriter {
                 case Types.VARBINARY:
                 case Types.BLOB:
                 case Types.LONGVARBINARY:
-                    preparedStatement.setBytes(columnIndex + 1, column
-                            .asBytes());
+                    preparedStatement.setBytes(columnIndex + 1, column.asBytes());
                     break;
 
                 case Types.BOOLEAN:
@@ -532,12 +565,9 @@ public class CommonRdbmsWriter {
                                     DBUtilErrorCode.UNSUPPORTED_TYPE,
                                     String.format(
                                             "您的配置文件中的列配置信息有误. 因为DataX 不支持数据库写入这种字段类型. 字段名:[%s], 字段类型:[%d], 字段Java类型:[%s]. 请修改表中该字段的类型或者不同步该字段.",
-                                            this.resultSetMetaData.getLeft()
-                                                    .get(columnIndex),
-                                            this.resultSetMetaData.getMiddle()
-                                                    .get(columnIndex),
-                                            this.resultSetMetaData.getRight()
-                                                    .get(columnIndex)));
+                                            this.resultSetMetaData.getLeft().get(columnIndex),
+                                            this.resultSetMetaData.getMiddle().get(columnIndex),
+                                            this.resultSetMetaData.getRight().get(columnIndex)));
             }
             return preparedStatement;
         }

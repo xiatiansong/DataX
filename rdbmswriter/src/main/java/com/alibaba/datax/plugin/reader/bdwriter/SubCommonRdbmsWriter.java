@@ -1,4 +1,4 @@
-package com.alibaba.datax.plugin.reader.rdbmswriter;
+package com.alibaba.datax.plugin.reader.impalawriter;
 
 import com.alibaba.datax.common.element.Column;
 import com.alibaba.datax.common.exception.DataXException;
