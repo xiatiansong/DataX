@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public final class OriginalConfPretreatmentUtil {
@@ -35,10 +36,10 @@ public final class OriginalConfPretreatmentUtil {
 
     public static void dealWhere(Configuration originalConfig) {
         String where = originalConfig.getString(Key.WHERE, null);
-        if(StringUtils.isNotBlank(where)) {
+        if (StringUtils.isNotBlank(where)) {
             String whereImprove = where.trim();
-            if(whereImprove.endsWith(";") || whereImprove.endsWith("；")) {
-                whereImprove = whereImprove.substring(0,whereImprove.length()-1);
+            if (whereImprove.endsWith(";") || whereImprove.endsWith("；")) {
+                whereImprove = whereImprove.substring(0, whereImprove.length() - 1);
             }
             originalConfig.set(Key.WHERE, whereImprove);
         }
@@ -66,7 +67,7 @@ public final class OriginalConfPretreatmentUtil {
         String password = originalConfig.getString(Key.PASSWORD);
         boolean checkSlave = originalConfig.getBool(Key.CHECK_SLAVE, false);
         boolean isTableMode = originalConfig.getBool(Constant.IS_TABLE_MODE);
-        boolean isPreCheck = originalConfig.getBool(Key.DRYRUN,false);
+        boolean isPreCheck = originalConfig.getBool(Key.DRYRUN, false);
 
         List<Object> conns = originalConfig.getList(Constant.CONN_MARK,
                 Object.class);
@@ -99,7 +100,7 @@ public final class OriginalConfPretreatmentUtil {
             originalConfig.set(String.format("%s[%d].%s", Constant.CONN_MARK,
                     i, Key.JDBC_URL), jdbcUrl);
 
-            LOG.info("Available jdbcUrl:{}.",jdbcUrl);
+            LOG.info("Available jdbcUrl:{}.", jdbcUrl);
 
             if (isTableMode) {
                 // table 方式
@@ -132,6 +133,10 @@ public final class OriginalConfPretreatmentUtil {
 
         List<String> userConfiguredColumns = originalConfig.getList(Key.COLUMN,
                 String.class);
+        if (1 == userConfiguredColumns.size() && userConfiguredColumns.get(0).contains(",")){
+            String[] array = userConfiguredColumns.get(0).split(",");
+            userConfiguredColumns = Arrays.asList(array);
+        }
 
         if (isTableMode) {
             if (null == userConfiguredColumns
@@ -187,8 +192,14 @@ public final class OriginalConfPretreatmentUtil {
                     }
 
                     originalConfig.set(Key.COLUMN_LIST, quotedColumns);
-                    originalConfig.set(Key.COLUMN,
-                            StringUtils.join(quotedColumns, ","));
+                    if (DATABASE_TYPE == DataBaseType.PostgreSQL) {
+                        originalConfig.set(Key.COLUMN, "\"" + StringUtils.join(quotedColumns, "\",\"") + "\"");
+                    } else if (DATABASE_TYPE == DataBaseType.MySql) {
+                        originalConfig.set(Key.COLUMN, "`" + StringUtils.join(quotedColumns, "`,`") + "`");
+                    } else {
+                        originalConfig.set(Key.COLUMN, StringUtils.join(quotedColumns, ","));
+                    }
+
                     if (StringUtils.isNotBlank(splitPk)) {
                         if (!allColumns.contains(splitPk.toLowerCase())) {
                             throw DataXException.asDataXException(DBUtilErrorCode.ILLEGAL_SPLIT_PK,
