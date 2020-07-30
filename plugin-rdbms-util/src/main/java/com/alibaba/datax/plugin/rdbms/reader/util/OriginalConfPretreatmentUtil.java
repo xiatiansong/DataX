@@ -9,12 +9,14 @@ import com.alibaba.datax.plugin.rdbms.util.DBUtil;
 import com.alibaba.datax.plugin.rdbms.util.DBUtilErrorCode;
 import com.alibaba.datax.plugin.rdbms.util.DataBaseType;
 import com.alibaba.datax.plugin.rdbms.util.TableExpandUtil;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 
 public final class OriginalConfPretreatmentUtil {
@@ -133,7 +135,7 @@ public final class OriginalConfPretreatmentUtil {
 
         List<String> userConfiguredColumns = originalConfig.getList(Key.COLUMN,
                 String.class);
-        if (1 == userConfiguredColumns.size() && userConfiguredColumns.get(0).contains(",")){
+        if (1 == userConfiguredColumns.size() && userConfiguredColumns.get(0).contains(",")) {
             String[] array = userConfiguredColumns.get(0).split(",");
             userConfiguredColumns = Arrays.asList(array);
         }
@@ -193,9 +195,9 @@ public final class OriginalConfPretreatmentUtil {
 
                     originalConfig.set(Key.COLUMN_LIST, quotedColumns);
                     if (DATABASE_TYPE == DataBaseType.PostgreSQL) {
-                        originalConfig.set(Key.COLUMN, "\"" + StringUtils.join(quotedColumns, "\",\"") + "\"");
+                        originalConfig.set(Key.COLUMN, joinSql(quotedColumns, "\"", "\",\"", "\""));
                     } else if (DATABASE_TYPE == DataBaseType.MySql) {
-                        originalConfig.set(Key.COLUMN, "`" + StringUtils.join(quotedColumns, "`,`") + "`");
+                        originalConfig.set(Key.COLUMN, joinSql(quotedColumns, "`", "`,`", "`"));
                     } else {
                         originalConfig.set(Key.COLUMN, StringUtils.join(quotedColumns, ","));
                     }
@@ -278,6 +280,41 @@ public final class OriginalConfPretreatmentUtil {
         }
 
         return tableModeFlags.get(0);
+    }
+
+    private static String joinSql(List<String> quotedColumns, String start, String separator, String end) {
+        if (quotedColumns == null) {
+            return null;
+        }
+        Iterator<String> iterator = quotedColumns.iterator();
+        // handle null, zero and one elements before building a buffer
+        if (iterator == null) {
+            return null;
+        }
+        if (!iterator.hasNext()) {
+            return "";
+        }
+        final String first = iterator.next();
+        if (!iterator.hasNext()) {
+            return start + first + end;
+        }
+
+        // two or more elements
+        final StringBuilder buf = new StringBuilder(256); // Java default is 16, probably too small
+        if (first != null) {
+            buf.append(first);
+        }
+
+        while (iterator.hasNext()) {
+            final String obj = iterator.next();
+            if (separator != null && obj != null && !(obj.contains("(") || obj.contains(")"))) {
+                buf.append(separator);
+            }
+            if (obj != null) {
+                buf.append(obj);
+            }
+        }
+        return start + buf.toString() + end;
     }
 
 }
