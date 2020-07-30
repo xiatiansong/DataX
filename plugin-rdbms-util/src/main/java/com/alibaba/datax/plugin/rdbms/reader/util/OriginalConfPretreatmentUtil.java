@@ -195,9 +195,9 @@ public final class OriginalConfPretreatmentUtil {
 
                     originalConfig.set(Key.COLUMN_LIST, quotedColumns);
                     if (DATABASE_TYPE == DataBaseType.PostgreSQL) {
-                        originalConfig.set(Key.COLUMN, joinSql(quotedColumns, "\"", "\",\"", "\""));
+                        originalConfig.set(Key.COLUMN, joinSql(quotedColumns, "\""));
                     } else if (DATABASE_TYPE == DataBaseType.MySql) {
-                        originalConfig.set(Key.COLUMN, joinSql(quotedColumns, "`", "`,`", "`"));
+                        originalConfig.set(Key.COLUMN, joinSql(quotedColumns, "`"));
                     } else {
                         originalConfig.set(Key.COLUMN, StringUtils.join(quotedColumns, ","));
                     }
@@ -282,39 +282,20 @@ public final class OriginalConfPretreatmentUtil {
         return tableModeFlags.get(0);
     }
 
-    private static String joinSql(List<String> quotedColumns, String start, String separator, String end) {
-        if (quotedColumns == null) {
-            return null;
-        }
-        Iterator<String> iterator = quotedColumns.iterator();
-        // handle null, zero and one elements before building a buffer
-        if (iterator == null) {
-            return null;
-        }
-        if (!iterator.hasNext()) {
-            return "";
-        }
-        final String first = iterator.next();
-        if (!iterator.hasNext()) {
-            return start + first + end;
-        }
-
-        // two or more elements
-        final StringBuilder buf = new StringBuilder(256); // Java default is 16, probably too small
-        if (first != null) {
-            buf.append(first);
-        }
-
-        while (iterator.hasNext()) {
-            final String obj = iterator.next();
-            if (separator != null && obj != null && !(obj.contains("(") || obj.contains(")"))) {
-                buf.append(separator);
+    private static String joinSql(List<String> quotedColumns, String concat) {
+        final StringBuilder buf = new StringBuilder(256);
+        for (int i = 0; i < quotedColumns.size(); i++) {
+            final String obj = quotedColumns.get(i);
+            if (!(obj.contains("(") || obj.contains(")"))) {
+                buf.append(concat);
             }
-            if (obj != null) {
-                buf.append(obj);
+            buf.append(obj);
+            if (!(obj.contains("(") || obj.contains(")"))) {
+                buf.append(concat);
             }
+            buf.append(",");
         }
-        return start + buf.toString() + end;
+        return buf.deleteCharAt(buf.length() - 1).toString();
     }
 
 }
