@@ -1,0 +1,22 @@
+{
+    "name": "kuduServerWriter",
+    "parameter": {
+        "kuduServerUrl": "",
+        "kuduDbName": "",
+        "kuduTableName": "",
+        "kuduTablePrimaryKeys": [{
+            "index":0,
+            "name":"id",
+            "type":"INT"
+        }],
+        "kuduTableColumns":[{
+            "index":1,
+            "name":"create_uid",
+            "type":"INT"
+        },{
+            "index":2,
+            "name":"upload_time",
+            "type":"BIGINT"
+        }]
+    }
+}

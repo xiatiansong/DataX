@@ -1,0 +1,6 @@
+{
+    "name": "kuduserverwriter",
+    "class": "com.lumi.bigdata.datax.plugin.writer.kudu.server.KuduServerWriter",
+    "description": "writer data to kudu use kudu server",
+    "developer": "victor"
+}
